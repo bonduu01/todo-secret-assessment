@@ -109,7 +109,7 @@ metadata:
   name: ingress-todo-service
   annotations:
    cert-manager.io/issuer: todo-tls-cert
-   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"     ### Enforce SSL redirect rule
 spec:
   tls:
    - hosts:
