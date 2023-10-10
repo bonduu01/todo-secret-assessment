@@ -1,0 +1,129 @@
+# Secret to store the base64-encoded token
+apiVersion: v1
+kind: Secret
+metadata:
+  name: todo-secret
+type: Opaque
+data:
+  token: cGFzc3dvcmQK
+---
+apiVersion: apps/v1
+kind: Deployment 
+metadata:
+  name: todo-service
+  labels:
+    app: todo-service
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: todo-service
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:  
+    metadata:
+      labels: 
+        app: todo-service
+    spec:
+      nodeAffinity:
+        requiredDuringSchedulingIgnoredDuringExecution:
+          nodeSelectorTerms:
+          - matchExpressions:
+            - key: kubernetes.io/hostname  # For this to work,  both nodes node-1 and node-3, must have the label kubernetes.io/hostname with the values node-1 or node-3.
+              operator: In
+              values:
+              - node-1
+              - node-3
+      imagePullSecrets:
+        - name: todo-secret                 #Secret
+      containers:
+        - name: todo-service
+          image: todo-service:e160a4bf)
+          imagePullPolicy: IfNotPresent          
+          resources:
+            requests:
+              cpu: "200m" 
+              memory: "128Mi"
+            limits:
+              memory: "200Mi"          
+          ports: 
+            - containerPort: 5000
+          env:
+            - name: TZ
+              value: Africa/Lagos
+            - name: DB_HOST
+              value: "1.2.3.4" # ip address or postgres hostname would be added here
+            - name: DB_PORT
+              value: "5432" # Normally I wouldnt add ports here, port values are mostly passed as a variable.
+          livenessProbe:
+            httpGet:
+              path: /live
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+#####Added a horizonal pod autoscaler,this would be specific to applications that consume much CPUs at a particlar period######
+apiVersion: autoscaling/v1
+kind: HorizontalPodAutoscaler
+metadata:
+  name: todo-service
+  labels:
+    app: todo-service
+spec:
+  maxReplicas: 4 
+  minReplicas: 2
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: todo-service
+  targetCPUUtilizationPercentage: 80
+---
+###### Configured Service, map port 5000 to 443 #################
+apiVersion: v1
+kind: Service
+metadata:
+    name: todo-service
+    labels:
+      app: todo-service
+spec:
+    ports:
+    - name: https
+      port: 443
+      targetPort: 5000
+    selector:
+        app: todo-service
+---
+###### exiting certmanager and ingress controller configuration tested on Digital Ocean's K8s Droplet############
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ingress-todo-service
+  annotations:
+   cert-manager.io/issuer: todo-tls-cert
+   nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  tls:
+   - hosts:
+     - todo.example.com
+     secretName: todo-tls-cert-example.com
+  rules:
+    - host: todo.example.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: todo-service
+                port:
+                  number: 443
+  ingressClassName: nginx
